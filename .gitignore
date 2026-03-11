@@ -4,3 +4,4 @@ node_modules/
 prospectiq.db
 .env
 *.local
+.vercel

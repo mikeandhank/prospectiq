@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const Database = require('better-sqlite3');
 const ProspectSearcher = require('./src/search-service');
 
 const searcher = new ProspectSearcher();
@@ -13,8 +12,6 @@ const PORT = process.env.PORT || 3001;
 // SPENDING SAFEGUARDS & RATE LIMITING
 // ============================================
 
-// Daily usage tracking (in-memory - resets on restart)
-// For production, use Redis or a database
 const usage = {
   searchesToday: 0,
   apiCallsToday: 0,
@@ -23,7 +20,6 @@ const usage = {
   dailyApiCallLimit: parseInt(process.env.DAILY_API_CALL_LIMIT) || 500
 };
 
-// Reset counters at midnight
 function checkAndResetUsage() {
   const today = new Date().toDateString();
   if (usage.lastReset !== today) {
@@ -34,7 +30,6 @@ function checkAndResetUsage() {
   }
 }
 
-// Check if user has exceeded limits
 function checkLimits(res) {
   checkAndResetUsage();
   
@@ -57,7 +52,6 @@ function checkLimits(res) {
   return null;
 }
 
-// Get usage stats
 app.get('/api/usage', (req, res) => {
   checkAndResetUsage();
   res.json({
@@ -76,104 +70,33 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Database setup
-const db = new Database(path.join(__dirname, 'prospectiq.db'));
-
-// Initialize database tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS prospects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    search_id TEXT,
-    name TEXT,
-    business_name TEXT,
-    address TEXT,
-    phone TEXT,
-    website TEXT,
-    email TEXT,
-    rating REAL,
-    review_count INTEGER,
-    category TEXT,
-    years_in_practice TEXT,
-    npi_number TEXT,
-    specialty TEXT,
-    education TEXT,
-    interests TEXT,
-    causes TEXT,
-    conversation_starters TEXT,
-    recent_news TEXT,
-    pain_points TEXT,
-    opportunity_signals TEXT,
-    sources TEXT,
-    tcpa_status TEXT DEFAULT 'verified',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS searches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    search_id TEXT UNIQUE,
-    category TEXT,
-    location TEXT,
-    search_radius INTEGER,
-    result_limit INTEGER,
-    prospect_count INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// In-memory search storage (for demo - would be Redis in production)
+// In-memory storage (resets on restart - for production use Redis/Postgres)
 const searchCache = new Map();
-
-// API Routes
 
 // Search endpoint
 app.post('/api/search', async (req, res) => {
   try {
-    // Check spending limits first
     const limitError = checkLimits(res);
     if (limitError) return limitError;
     
     const { category, location, radius, limit } = req.body;
     
-    // Track usage
     checkAndResetUsage();
     usage.searchesToday++;
-    usage.apiCallsToday += (limit || 10) + 3; // estimate: limit results + geocode + NPI calls
+    usage.apiCallsToday += (limit || 10) + 3;
     
-    // Generate search ID
     const searchId = `search_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Store search record
-    const insertSearch = db.prepare(`
-      INSERT INTO searches (search_id, category, location, search_radius, result_limit, prospect_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    
-    // Use real search service
     const prospects = await searcher.search(category, location, radius, limit);
     
-    // Store prospects
-    const insertProspect = db.prepare(`
-      INSERT INTO prospects (
-        search_id, name, business_name, address, phone, website, email,
-        rating, review_count, category, years_in_practice, npi_number,
-        specialty, education, interests, causes, conversation_starters,
-        recent_news, pain_points, opportunity_signals, sources, tcpa_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    // Store in memory (not persistent - for production add Redis)
+    searchCache.set(searchId, { prospects, category, location, createdAt: new Date() });
     
-    const insertMany = db.transaction((prospects) => {
-      for (const p of prospects) {
-        insertProspect.run(
-          searchId, p.name, p.business_name, p.address, p.phone, p.website, p.email,
-          p.rating, p.review_count, p.category, p.years_in_practice, p.npi_number,
-          p.specialty, p.education, p.interests, p.causes, p.conversation_starters,
-          p.recent_news, p.pain_points, p.opportunity_signals, p.sources, p.tcpa_status
-        );
-      }
-    });
-    
-    insertMany(prospects);
-    insertSearch.run(searchId, category, location, radius, limit, prospects.length);
+    // Cleanup old entries (keep last 100)
+    if (searchCache.size > 100) {
+      const firstKey = searchCache.keys().next().value;
+      searchCache.delete(firstKey);
+    }
     
     res.json({
       search_id: searchId,
@@ -189,100 +112,43 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
-// AI-powered search endpoint (uses OpenClaw web_search)
-app.post('/api/search/ai', async (req, res) => {
-  try {
-    const { category, location, radius, limit } = req.body;
-    
-    const searchId = `search_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Generate search term for web search
-    const searchTerm = category === 'Auto Shop' 
-      ? `auto repair mechanic shops in ${location} phone address`
-      : `${category.toLowerCase()}s in ${location} directory phone address`;
-    
-    // Use the searcher's fallback to generate mock data
-    // In production, this would call out to OpenClaw's web_search tool
-    const prospects = searcher.generateEnhancedMock(category, location, limit);
-    
-    // Store prospects
-    const insertProspect = db.prepare(`
-      INSERT INTO prospects (
-        search_id, name, business_name, address, phone, website, email,
-        rating, review_count, category, years_in_practice, npi_number,
-        specialty, education, interests, causes, conversation_starters,
-        recent_news, pain_points, opportunity_signals, sources, tcpa_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const insertMany = db.transaction((prospects) => {
-      for (const p of prospects) {
-        insertProspect.run(
-          searchId, p.name, p.business_name, p.address, p.phone, p.website, p.email,
-          p.rating, p.review_count, p.category, p.years_in_practice, p.npi_number,
-          p.specialty, p.education, p.interests, p.causes, p.conversation_starters,
-          p.recent_news, p.pain_points, p.opportunity_signals, p.sources, p.tcpa_status
-        );
-      }
-    });
-    
-    insertMany(prospects);
-    
-    const insertSearch = db.prepare(`
-      INSERT INTO searches (search_id, category, location, search_radius, result_limit, prospect_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    insertSearch.run(searchId, category, location, radius, limit, prospects.length);
-    
-    res.json({
-      search_id: searchId,
-      category,
-      location,
-      radius,
-      count: prospects.length,
-      prospects,
-      note: 'Using AI-enhanced mock data. For production, integrate OpenClaw web_search.'
-    });
-  } catch (error) {
-    console.error('AI Search error:', error);
-    res.status(500).json({ error: 'Search failed', message: error.message });
-  }
-});
-
 // Get prospects by search ID
 app.get('/api/search/:searchId', (req, res) => {
-  try {
-    const { searchId } = req.params;
-    const prospects = db.prepare('SELECT * FROM prospects WHERE search_id = ?').all(searchId);
-    res.json({ prospects });
-  } catch (error) {
-    console.error('Fetch error:', error);
-    res.status(500).json({ error: 'Fetch failed' });
+  const { searchId } = req.params;
+  const data = searchCache.get(searchId);
+  
+  if (!data) {
+    return res.status(404).json({ error: 'Search not found' });
   }
+  
+  res.json({ prospects: data.prospects });
 });
 
-// Get all searches
+// Get all recent searches
 app.get('/api/searches', (req, res) => {
-  try {
-    const searches = db.prepare('SELECT * FROM searches ORDER BY created_at DESC LIMIT 10').all();
-    res.json({ searches });
-  } catch (error) {
-    console.error('Fetch error:', error);
-    res.status(500).json({ error: 'Fetch failed' });
-  }
+  const searches = Array.from(searchCache.entries()).map(([id, data]) => ({
+    search_id: id,
+    category: data.category,
+    location: data.location,
+    prospect_count: data.prospects.length,
+    created_at: data.createdAt
+  }));
+  
+  res.json({ searches: searches.slice(-10).reverse() });
 });
 
 // Export CSV
 app.get('/api/export/:searchId', (req, res) => {
   try {
     const { searchId } = req.params;
-    const prospects = db.prepare('SELECT * FROM prospects WHERE search_id = ?').all(searchId);
+    const data = searchCache.get(searchId);
     
-    if (prospects.length === 0) {
+    if (!data || data.prospects.length === 0) {
       return res.status(404).json({ error: 'No prospects found' });
     }
     
-    // Generate CSV
+    const prospects = data.prospects;
+    
     const headers = [
       'Name', 'Business', 'Address', 'Phone', 'Website', 'Email',
       'Rating', 'Reviews', 'Category', 'Years', 'NPI', 'Specialty',
@@ -304,7 +170,7 @@ app.get('/api/export/:searchId', (req, res) => {
     res.send(csv);
   } catch (error) {
     console.error('Export error:', error);
-    res.status(500).json({ error: 'Export failed', message: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Export failed', message: error.message });
   }
 });
 
