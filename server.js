@@ -118,6 +118,66 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// AI-powered search endpoint (uses OpenClaw web_search)
+app.post('/api/search/ai', async (req, res) => {
+  try {
+    const { category, location, radius, limit } = req.body;
+    
+    const searchId = `search_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Generate search term for web search
+    const searchTerm = category === 'Auto Shop' 
+      ? `auto repair mechanic shops in ${location} phone address`
+      : `${category.toLowerCase()}s in ${location} directory phone address`;
+    
+    // Use the searcher's fallback to generate mock data
+    // In production, this would call out to OpenClaw's web_search tool
+    const prospects = searcher.generateEnhancedMock(category, location, limit);
+    
+    // Store prospects
+    const insertProspect = db.prepare(`
+      INSERT INTO prospects (
+        search_id, name, business_name, address, phone, website, email,
+        rating, review_count, category, years_in_practice, npi_number,
+        specialty, education, interests, causes, conversation_starters,
+        recent_news, pain_points, opportunity_signals, sources, tcpa_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    const insertMany = db.transaction((prospects) => {
+      for (const p of prospects) {
+        insertProspect.run(
+          searchId, p.name, p.business_name, p.address, p.phone, p.website, p.email,
+          p.rating, p.review_count, p.category, p.years_in_practice, p.npi_number,
+          p.specialty, p.education, p.interests, p.causes, p.conversation_starters,
+          p.recent_news, p.pain_points, p.opportunity_signals, p.sources, p.tcpa_status
+        );
+      }
+    });
+    
+    insertMany(prospects);
+    
+    const insertSearch = db.prepare(`
+      INSERT INTO searches (search_id, category, location, search_radius, result_limit, prospect_count)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    insertSearch.run(searchId, category, location, radius, limit, prospects.length);
+    
+    res.json({
+      search_id: searchId,
+      category,
+      location,
+      radius,
+      count: prospects.length,
+      prospects,
+      note: 'Using AI-enhanced mock data. For production, integrate OpenClaw web_search.'
+    });
+  } catch (error) {
+    console.error('AI Search error:', error);
+    res.status(500).json({ error: 'Search failed', message: error.message });
+  }
+});
+
 // Get prospects by search ID
 app.get('/api/search/:searchId', (req, res) => {
   try {
