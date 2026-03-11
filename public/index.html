@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProspectIQ - Sales Intelligence</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🎯</span>
+        <h1>ProspectIQ</h1>
+      </div>
+      <p class="tagline">Sales Intelligence for High-Value Prospects</p>
+    </header>
+
+    <!-- Search Form -->
+    <section class="search-section">
+      <form id="searchForm" class="search-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+              <option value="">Select category...</option>
+              <option value="Doctor">Doctor (Physician)</option>
+              <option value="Dentist">Dentist</option>
+              <option value="Auto Shop">Auto Shop</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="location">Location</label>
+            <input type="text" id="location" name="location" placeholder="City, State (e.g. Nashville, TN)" required>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="radius">Radius: <span id="radiusValue">15</span> miles</label>
+            <input type="range" id="radius" name="radius" min="5" max="50" value="15">
+          </div>
+          
+          <div class="form-group">
+            <label for="limit">Results</label>
+            <select id="limit" name="limit">
+              <option value="10">10 results</option>
+              <option value="20" selected>20 results</option>
+              <option value="50">50 results</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn-primary" id="searchBtn">
+              <span class="btn-text">Search Prospects</span>
+              <span class="btn-loading hidden">Searching...</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Results Section -->
+    <section id="resultsSection" class="results-section hidden">
+      <div class="results-header">
+        <h2>Prospect Results</h2>
+        <div class="results-actions">
+          <span id="resultsCount" class="results-count"></span>
+          <button id="exportBtn" class="btn-secondary">Export CSV</button>
+        </div>
+      </div>
+      
+      <div id="prospectsGrid" class="prospects-grid">
+        <!-- Prospect cards will be inserted here -->
+      </div>
+    </section>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="loading-state hidden">
+      <div class="spinner"></div>
+      <p>Searching directories...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state">
+      <p>Enter a category and location to find prospects</p>
+    </div>
+  </div>
+
+  <!-- Prospect Card Template (hidden) -->
+  <template id="prospectCardTemplate">
+    <div class="prospect-card">
+      <div class="card-header">
+        <div class="prospect-name">
+          <h3 class="p-name"></h3>
+          <span class="p-category badge"></span>
+        </div>
+        <div class="p-rating">
+          <span class="stars"></span>
+          <span class="reviews"></span>
+        </div>
+      </div>
+      
+      <div class="card-body">
+        <p class="p-business"></p>
+        <p class="p-address"></p>
+        
+        <div class="contact-info">
+          <a href="#" class="p-phone contact-link"></a>
+          <a href="#" class="p-website contact-link" target="_blank"></a>
+          <span class="p-email contact-link"></span>
+        </div>
+      </div>
+      
+      <div class="card-rapport">
+        <button class="rapport-toggle">View Rapport Intel ▼</button>
+        <div class="rapport-content hidden">
+          <div class="rapport-section">
+            <strong>🎓 Education:</strong>
+            <span class="p-education"></span>
+          </div>
+          <div class="rapport-section">
+            <strong>🏆 Interests:</strong>
+            <span class="p-interests"></span>
+          </div>
+          <div class="rapport-section">
+            <strong>❤️ Causes:</strong>
+            <span class="p-causes"></span>
+          </div>
+          <div class="rapport-section">
+            <strong>🗣️ Conversation Starters:</strong>
+            <div class="p-starters"></div>
+          </div>
+          <div class="rapport-section">
+            <strong>⚠️ Pain Points:</strong>
+            <span class="p-pain-points"></span>
+          </div>
+          <div class="rapport-section">
+            <strong>💡 Opportunity:</strong>
+            <span class="p-opportunity"></span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card-footer">
+        <span class="tcpa-badge">
+          ✅ TCPA Compliant
+        </span>
+        <span class="p-sources"></span>
+      </div>
+    </div>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>
