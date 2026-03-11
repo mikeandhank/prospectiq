@@ -9,6 +9,68 @@ const searcher = new ProspectSearcher();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ============================================
+// SPENDING SAFEGUARDS & RATE LIMITING
+// ============================================
+
+// Daily usage tracking (in-memory - resets on restart)
+// For production, use Redis or a database
+const usage = {
+  searchesToday: 0,
+  apiCallsToday: 0,
+  lastReset: new Date().toDateString(),
+  dailySearchLimit: parseInt(process.env.DAILY_SEARCH_LIMIT) || 100,
+  dailyApiCallLimit: parseInt(process.env.DAILY_API_CALL_LIMIT) || 500
+};
+
+// Reset counters at midnight
+function checkAndResetUsage() {
+  const today = new Date().toDateString();
+  if (usage.lastReset !== today) {
+    usage.searchesToday = 0;
+    usage.apiCallsToday = 0;
+    usage.lastReset = today;
+    console.log('🔄 Usage counters reset for new day');
+  }
+}
+
+// Check if user has exceeded limits
+function checkLimits(res) {
+  checkAndResetUsage();
+  
+  if (usage.searchesToday >= usage.dailySearchLimit) {
+    return res.status(429).json({ 
+      error: 'Daily search limit exceeded',
+      limit: usage.dailySearchLimit,
+      resetsAt: 'midnight local time'
+    });
+  }
+  
+  if (usage.apiCallsToday >= usage.dailyApiCallLimit) {
+    return res.status(429).json({
+      error: 'Daily API call limit exceeded',
+      limit: usage.dailyApiCallLimit,
+      resetsAt: 'midnight local time'
+    });
+  }
+  
+  return null;
+}
+
+// Get usage stats
+app.get('/api/usage', (req, res) => {
+  checkAndResetUsage();
+  res.json({
+    searchesToday: usage.searchesToday,
+    apiCallsToday: usage.apiCallsToday,
+    dailySearchLimit: usage.dailySearchLimit,
+    dailyApiCallLimit: usage.dailyApiCallLimit,
+    remainingSearches: usage.dailySearchLimit - usage.searchesToday,
+    remainingApiCalls: usage.dailyApiCallLimit - usage.apiCallsToday,
+    lastReset: usage.lastReset
+  });
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -66,7 +128,16 @@ const searchCache = new Map();
 // Search endpoint
 app.post('/api/search', async (req, res) => {
   try {
+    // Check spending limits first
+    const limitError = checkLimits(res);
+    if (limitError) return limitError;
+    
     const { category, location, radius, limit } = req.body;
+    
+    // Track usage
+    checkAndResetUsage();
+    usage.searchesToday++;
+    usage.apiCallsToday += (limit || 10) + 3; // estimate: limit results + geocode + NPI calls
     
     // Generate search ID
     const searchId = `search_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
